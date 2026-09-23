@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import functools
 import json
-
-import google.auth.exceptions
 from typing import Any
 
+import google.auth.exceptions
 from google.analytics import admin_v1beta as admin
 from google.analytics import data_v1beta as data
 from google.api_core import exceptions as gexc
+from google.oauth2.credentials import Credentials as UserCredentials
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
@@ -25,21 +26,40 @@ Dates accept YYYY-MM-DD, 'today', 'yesterday' or 'NdaysAgo'.
 Filters and order_bys use the GA4 Data API JSON shapes (camelCase or snake_case).
 """
 
-mcp = MCPServer("ga4", instructions=INSTRUCTIONS)
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=True)
+TOOLS = []
 
 
 # --------------------------------------------------------------------------- clients
+#
+# Local mode: one set of clients built from the token file / ADC.
+# Remote mode (HTTP + OAuth): the bearer token carries the caller's Google access
+# token, so clients are built per caller and never shared between users.
 
 
-@functools.cache
+def _google_token() -> str | None:
+    access = get_access_token()
+    return getattr(access, "google_token", None) if access else None
+
+
+@functools.lru_cache(maxsize=32)
+def _clients(google_token: str | None) -> tuple[data.BetaAnalyticsDataClient, admin.AnalyticsAdminServiceClient]:
+    if google_token:
+        creds, transport = UserCredentials(token=google_token), "rest"
+    else:
+        creds, transport = load_credentials(), None
+    return (
+        data.BetaAnalyticsDataClient(credentials=creds, transport=transport),
+        admin.AnalyticsAdminServiceClient(credentials=creds, transport=transport),
+    )
+
+
 def _data_client() -> data.BetaAnalyticsDataClient:
-    return data.BetaAnalyticsDataClient(credentials=load_credentials())
+    return _clients(_google_token())[0]
 
 
-@functools.cache
 def _admin_client() -> admin.AnalyticsAdminServiceClient:
-    return admin.AnalyticsAdminServiceClient(credentials=load_credentials())
+    return _clients(_google_token())[1]
 
 
 # --------------------------------------------------------------------------- helpers
@@ -90,7 +110,8 @@ def tool(fn):
         except (RuntimeError, google.auth.exceptions.GoogleAuthError) as e:
             raise ToolError(f"Authentication problem: {e}") from e
 
-    return mcp.tool(annotations=READ_ONLY)(wrapper)
+    TOOLS.append(wrapper)
+    return wrapper
 
 
 def format_report(resp: Any) -> dict:
@@ -349,3 +370,13 @@ def check_compatibility(
             for c in resp.metric_compatibilities
         ],
     }
+
+
+def build_server(**kwargs: Any) -> MCPServer:
+    server = MCPServer("ga4", instructions=INSTRUCTIONS, **kwargs)
+    for fn in TOOLS:
+        server.tool(annotations=READ_ONLY)(fn)
+    return server
+
+
+mcp = build_server()

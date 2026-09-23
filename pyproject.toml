@@ -10,6 +10,11 @@ dependencies = [
     "google-analytics-admin>=0.23",
     "google-auth>=2.30",
     "google-auth-oauthlib>=1.2",
+    # remote (HTTP / Vercel) mode
+    "cryptography>=42",
+    "httpx>=0.27",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
 ]
 
 [project.scripts]

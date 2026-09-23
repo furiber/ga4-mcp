@@ -20,6 +20,10 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("whoami", help="Verify credentials by listing accessible GA4 properties")
 
+    remote = sub.add_parser("remote", help="Run the multi-user HTTP server with Google OAuth (what Vercel runs)")
+    remote.add_argument("--host", default="127.0.0.1")
+    remote.add_argument("--port", type=int, default=8000)
+
     args = parser.parse_args(argv)
 
     if args.cmd == "auth":
@@ -34,6 +38,12 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{acc['account']}  {acc['account_name']}")
             for p in acc["properties"]:
                 print(f"    {p['property_id']}  {p['display_name']}")
+    elif args.cmd == "remote":
+        import uvicorn
+
+        from .remote import create_app
+
+        uvicorn.run(create_app(), host=args.host, port=args.port)
     else:
         from .server import mcp
 

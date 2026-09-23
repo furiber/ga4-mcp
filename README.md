@@ -1,6 +1,7 @@
 # ga4-mcp
 
 Read-only [MCP](https://modelcontextprotocol.io) server for **Google Analytics 4 reporting**.
+Run it locally (stdio) or [deploy it free on Vercel](#deploy-to-vercel-free-hosted-multi-user).
 It calls the GA4 Data API (reports) and the Admin API (read-only lookups) **as you**, with your own
 Google account, so it sees exactly the properties you can see in the GA4 UI.
 
@@ -105,7 +106,71 @@ claude mcp add ga4 -- uv --directory /path/to/ga4-mcp run ga4-mcp
 ```
 
 `ga4-mcp serve --transport streamable-http` is also available. It has no auth of its own, so only
-bind it locally.
+bind it locally. For a hosted server, see the next section.
+
+---
+
+## Deploy to Vercel (free, hosted, multi-user)
+
+In this mode the server is a small OAuth server of its own. When you add it to Claude (web,
+desktop, mobile, or Claude Code), you're sent to **Google's sign-in page**. Each person uses their
+own Google account and gets the `analytics.readonly` scope. First, a short consent page shows
+which app is connecting. Nothing is stored server-side: sessions
+are encrypted tokens, so Vercel needs no database.
+
+```
+Claude ──OAuth──▶ your-app.vercel.app ──redirect──▶ Google sign-in (analytics.readonly)
+   ▲                     │ encrypted bearer token holds the user's Google token
+   └──── MCP calls ──────┘────────▶ GA4 Data / Admin API as that user
+```
+
+### 1. Google Cloud
+
+Complete steps 1–3 of the Google Cloud setup above (project, both APIs, consent screen). Then
+create a **second OAuth client**:
+
+- *Google Auth Platform → Clients → Create client*, application type **Web application**
+- **Authorized redirect URI:** `https://<your-project>.vercel.app/oauth/google/callback`. You can
+  add this after the first deploy, once you know the URL.
+- Copy the **Client ID** and **Client secret**.
+
+### 2. Vercel
+
+1. Go to https://vercel.com/new, import this GitHub repo, and keep the defaults. Vercel detects
+   Python and loads `app.py`.
+2. Under **Settings → Environment Variables** (Production), add:
+
+   | Variable | Value |
+   |---|---|
+   | `GOOGLE_CLIENT_ID` | From the Web client |
+   | `GOOGLE_CLIENT_SECRET` | From the Web client |
+   | `TOKEN_ENCRYPTION_KEY` | Output of `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+   | `ALLOWED_EMAILS` | Who may sign in, comma-separated, e.g. `me@gmail.com,@mycompany.com`. Use `*` for anyone. |
+   | `PUBLIC_URL` | `https://<your-project>.vercel.app`. Optional; defaults to the production domain. |
+
+3. **Redeploy** so the variables take effect. Opening `https://<your-project>.vercel.app/` should
+   print a "GA4 MCP server" line.
+
+### 3. Connect a client
+
+- **Claude (web/desktop/mobile):** *Settings → Connectors → Add custom connector*, then enter the
+  URL `https://<your-project>.vercel.app/mcp`.
+- **Claude Code:** `claude mcp add --transport http ga4 https://<your-project>.vercel.app/mcp`,
+  then run `/mcp` to sign in.
+
+### Notes
+
+- **Cost:** this fits comfortably in Vercel's free Hobby plan. That plan is for personal,
+  non-commercial use. GA4 API quotas are free.
+- **Who can use it:** only Google accounts matching `ALLOWED_EMAILS`, and they only see the GA4
+  properties their own account can access. An External consent screen in *Testing* also limits
+  sign-in to its test users.
+- **Signing out:** revoke "GA4 MCP" at https://myaccount.google.com/permissions. Changing
+  `TOKEN_ENCRYPTION_KEY` signs everyone out.
+- **Weekly re-login:** as above, an External consent screen left in *Testing* makes Google refresh
+  tokens expire after 7 days. Publish it to avoid this.
+- **Test locally:** set the same variables with `PUBLIC_URL=http://localhost:8000`, add
+  `http://localhost:8000/oauth/google/callback` to the Web client, and run `uv run ga4-mcp remote`.
 
 ## Example prompts
 
@@ -137,6 +202,9 @@ bind it locally.
 | `403 User does not have sufficient permissions` | Your Google user has no access to that GA4 property. |
 | `invalid_grant` / token expired | Re-run `ga4-mcp auth`. This happens weekly if the consent screen is External + Testing (see above). |
 | `No Google credentials found` | Run step 3. |
+| Vercel: `redirect_uri_mismatch` from Google | The Web client's redirect URI must exactly match `PUBLIC_URL` + `/oauth/google/callback`. |
+| Vercel: "not allowed to use this server" | Add the email or domain to `ALLOWED_EMAILS`, then redeploy. |
+| Vercel: function crashes with `Missing environment variables` | Set them for the **Production** environment, then redeploy. |
 
 ## Development
 
