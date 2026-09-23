@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+.pytest_cache/
+# never commit Google credentials
+client_secret*.json
+token.json
