@@ -4,14 +4,15 @@ Only the ``analytics.readonly`` scope is ever requested, so the server cannot
 modify GA4 configuration even if a tool tried to.
 
 Credential sources, in order:
-1. ``GA4_MCP_TOKEN_JSON`` env var: the contents of the token file below, for hosts
-   such as Horizon where the server should act as *your* Google account
-   (print it with ``ga4-mcp token``).
+1. ``GA4_MCP_TOKEN_JSON`` env var, for hosts such as Horizon. Either the contents of
+   the token file below (acts as *your* Google account; print it with
+   ``ga4-mcp token``) or a service-account key JSON (acts as that service account,
+   which needs Viewer access on the GA4 properties).
 2. A token saved by ``ga4-mcp auth`` (user OAuth via your own Desktop client).
 3. Application Default Credentials (``gcloud auth application-default login``).
 
-Per-request tokens (Horizon delegated authorization, the built-in OAuth server)
-take precedence over all of these; see ``server._google_token``.
+A per-request token from Horizon delegated authorization takes precedence over all
+of these; see ``server._google_token``.
 """
 
 from __future__ import annotations
@@ -60,7 +61,14 @@ def load_credentials() -> Credentials:
         try:
             info = json.loads(env_token)
         except ValueError as e:
-            raise RuntimeError("GA4_MCP_TOKEN_JSON is not valid JSON; paste the output of `ga4-mcp token`.") from e
+            raise RuntimeError(
+                "GA4_MCP_TOKEN_JSON is not valid JSON; paste a service-account key file "
+                "or the output of `ga4-mcp token`."
+            ) from e
+        if info.get("type") == "service_account":
+            from google.oauth2 import service_account
+
+            return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
         # Refreshed lazily by the Google client on first use; nothing is written back.
         return UserCredentials.from_authorized_user_info(info, SCOPES)
 
