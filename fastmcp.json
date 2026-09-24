@@ -6,7 +6,6 @@
   },
   "environment": {
     "python": "3.12",
-    "project": ".",
-    "dependencies": ["fastmcp>=4,<5"]
+    "project": "."
   }
 }

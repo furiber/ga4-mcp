@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 
 
@@ -21,10 +20,6 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("token", help="Print the saved token as one line for the GA4_MCP_TOKEN_JSON secret")
     sub.add_parser("whoami", help="Verify credentials by listing accessible GA4 properties")
-
-    remote = sub.add_parser("remote", help="Run the multi-user HTTP server with Google OAuth (self-hosting, e.g. Render)")
-    remote.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
-    remote.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
 
     args = parser.parse_args(argv)
 
@@ -50,16 +45,11 @@ def main(argv: list[str] | None = None) -> None:
             print(f"{acc['account']}  {acc['account_name']}")
             for p in acc["properties"]:
                 print(f"    {p['property_id']}  {p['display_name']}")
-    elif args.cmd == "remote":
-        import uvicorn
-
-        from .remote import create_app
-
-        uvicorn.run(create_app(), host=args.host, port=args.port)
     else:
         from .server import mcp
 
-        mcp.run(transport=getattr(args, "transport", "stdio"))
+        transport = getattr(args, "transport", "stdio")
+        mcp.run(transport="http" if transport == "streamable-http" else transport)
 
 
 if __name__ == "__main__":

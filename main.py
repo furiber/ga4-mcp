@@ -1,4 +1,4 @@
-"""Horizon entrypoint (`main.py:mcp`): the plain MCP SDK server, run by Horizon's fastmcp CLI."""
+"""Horizon entrypoint (`main.py:mcp`)."""
 
 import sys
 from pathlib import Path
