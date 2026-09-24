@@ -4,7 +4,9 @@ MCP clients (Claude, etc.) do OAuth with this server, and this server sends each
 through Google's consent screen, so every caller uses their *own* Google account and
 only the ``analytics.readonly`` scope.
 
-It's stateless, so it runs on serverless hosts like Vercel with no database. Client
+Use it when self-hosting (e.g. Render). On Horizon, Horizon handles auth instead.
+
+It's stateless, so it runs on any host (even serverless) with no database. Client
 registrations, authorization codes, access and refresh tokens are all Fernet-encrypted
 blobs sealed with ``TOKEN_ENCRYPTION_KEY``. Consequences:
 - Rotating ``TOKEN_ENCRYPTION_KEY`` signs everyone out.
@@ -72,15 +74,12 @@ class Settings:
             for k in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "TOKEN_ENCRYPTION_KEY", "ALLOWED_EMAILS")
             if not os.environ.get(k)
         ]
-        public_url = os.environ.get("PUBLIC_URL") or (
-            f"https://{os.environ['VERCEL_PROJECT_PRODUCTION_URL']}"
-            if os.environ.get("VERCEL_PROJECT_PRODUCTION_URL")
-            else ""
-        )
+        # RENDER_EXTERNAL_URL is set automatically on Render.
+        public_url = os.environ.get("PUBLIC_URL") or os.environ.get("RENDER_EXTERNAL_URL") or ""
         if not public_url:
             missing.append("PUBLIC_URL")
         if missing:
-            raise RuntimeError(f"Missing environment variables: {', '.join(missing)} (see README, 'Deploy to Vercel').")
+            raise RuntimeError(f"Missing environment variables: {', '.join(missing)} (see README, 'Self-hosting').")
         return cls(
             public_url=public_url.rstrip("/"),
             google_client_id=os.environ["GOOGLE_CLIENT_ID"],

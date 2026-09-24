@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import contextvars
 import functools
+import inspect
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import google.auth.exceptions
@@ -12,7 +15,7 @@ from google.analytics import data_v1beta as data
 from google.api_core import exceptions as gexc
 from google.oauth2.credentials import Credentials as UserCredentials
 from mcp.server.auth.middleware.auth_context import get_access_token
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -32,14 +35,31 @@ TOOLS = []
 
 # --------------------------------------------------------------------------- clients
 #
-# Local mode: one set of clients built from the token file / ADC.
-# Remote mode (HTTP + OAuth): the bearer token carries the caller's Google access
-# token, so clients are built per caller and never shared between users.
+# Where the Google credential comes from, first match wins:
+# 1. Built-in OAuth server (`ga4-mcp remote`): the verified bearer token carries the
+#    caller's Google access token.
+# 2. Horizon delegated authorization: Horizon's gateway swaps the caller's Horizon
+#    token for their Google access token in the `Authorization` header.
+# 3. Server-wide credentials from auth.load_credentials() (GA4_MCP_TOKEN_JSON, the
+#    local token file, or ADC).
+# Per-caller clients are cached by token, so one user's client never serves another.
+
+_request_headers: contextvars.ContextVar[Mapping[str, str] | None] = contextvars.ContextVar(
+    "ga4_request_headers", default=None
+)
 
 
 def _google_token() -> str | None:
     access = get_access_token()
-    return getattr(access, "google_token", None) if access else None
+    if access is not None and getattr(access, "google_token", None):
+        return access.google_token
+    headers = _request_headers.get() or {}
+    scheme, _, token = (headers.get("authorization") or "").partition(" ")
+    # Only Google OAuth access tokens (ya29.*). Horizon "fails open" and may forward
+    # its own token when the exchange fails; that must not be sent to Google.
+    if scheme.lower() == "bearer" and token.startswith("ya29."):
+        return token
+    return None
 
 
 @functools.lru_cache(maxsize=32)
@@ -99,17 +119,36 @@ def _aggregations(names: list[str] | None) -> list[data.MetricAggregation]:
 
 
 def tool(fn):
-    """Register a read-only tool and turn Google/auth errors into readable tool errors."""
+    """Register a read-only tool and turn Google/auth errors into readable tool errors.
+
+    The wrapper also takes the MCP request Context (hidden from the tool's schema) so
+    the tool can see HTTP request headers.
+    """
 
     @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, ctx: Context | None = None, **kwargs):
+        headers = ctx.headers if ctx is not None else None
+        reset = _request_headers.set(headers)
         try:
             return fn(*args, **kwargs)
         except gexc.GoogleAPICallError as e:
             raise ToolError(f"Google Analytics API error ({e.code}): {e.message}") from e
+        except google.auth.exceptions.RefreshError as e:
+            if _google_token():  # per-request token without a refresh token
+                raise ToolError(
+                    "Google rejected the access token sent with this request (expired or revoked). "
+                    "Re-authorize Google (Horizon: the server's /authorize page) or reconnect the MCP client."
+                ) from e
+            raise ToolError(f"Authentication problem: {e}") from e
         except (RuntimeError, google.auth.exceptions.GoogleAuthError) as e:
             raise ToolError(f"Authentication problem: {e}") from e
+        finally:
+            _request_headers.reset(reset)
 
+    sig = inspect.signature(fn)
+    ctx_param = inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Context)
+    wrapper.__signature__ = sig.replace(parameters=[*sig.parameters.values(), ctx_param])
+    wrapper.__annotations__ = {**fn.__annotations__, "ctx": Context}
     TOOLS.append(wrapper)
     return wrapper
 

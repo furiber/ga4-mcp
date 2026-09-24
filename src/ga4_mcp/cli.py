@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 
@@ -18,11 +19,12 @@ def main(argv: list[str] | None = None) -> None:
     auth.add_argument("--port", type=int, default=0, help="Local redirect port (0 = random)")
     auth.add_argument("--no-browser", action="store_true", help="Print the URL instead of opening a browser")
 
+    sub.add_parser("token", help="Print the saved token as one line for the GA4_MCP_TOKEN_JSON secret")
     sub.add_parser("whoami", help="Verify credentials by listing accessible GA4 properties")
 
-    remote = sub.add_parser("remote", help="Run the multi-user HTTP server with Google OAuth (what Vercel runs)")
-    remote.add_argument("--host", default="127.0.0.1")
-    remote.add_argument("--port", type=int, default=8000)
+    remote = sub.add_parser("remote", help="Run the multi-user HTTP server with Google OAuth (self-hosting, e.g. Render)")
+    remote.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    remote.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
 
     args = parser.parse_args(argv)
 
@@ -31,6 +33,16 @@ def main(argv: list[str] | None = None) -> None:
 
         path = run_oauth_flow(args.client_secrets, port=args.port, open_browser=not args.no_browser)
         print(f"Saved token to {path}", file=sys.stderr)
+    elif args.cmd == "token":
+        import json
+
+        from .auth import token_path
+
+        path = token_path()
+        if not path.exists():
+            sys.exit(f"No token at {path}. Run `ga4-mcp auth --client-secrets <file>` first.")
+        print(json.dumps(json.loads(path.read_text()), separators=(",", ":")))
+        print("Treat this like a password: it grants read access to your GA4 data.", file=sys.stderr)
     elif args.cmd == "whoami":
         from .server import list_account_summaries
 

@@ -4,12 +4,19 @@ Only the ``analytics.readonly`` scope is ever requested, so the server cannot
 modify GA4 configuration even if a tool tried to.
 
 Credential sources, in order:
-1. A token saved by ``ga4-mcp auth`` (user OAuth via your own Desktop client).
-2. Application Default Credentials (``gcloud auth application-default login``).
+1. ``GA4_MCP_TOKEN_JSON`` env var: the contents of the token file below, for hosts
+   such as Horizon where the server should act as *your* Google account
+   (print it with ``ga4-mcp token``).
+2. A token saved by ``ga4-mcp auth`` (user OAuth via your own Desktop client).
+3. Application Default Credentials (``gcloud auth application-default login``).
+
+Per-request tokens (Horizon delegated authorization, the built-in OAuth server)
+take precedence over all of these; see ``server._google_token``.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -49,6 +56,14 @@ def _save(creds: UserCredentials) -> None:
 
 
 def load_credentials() -> Credentials:
+    if env_token := os.environ.get("GA4_MCP_TOKEN_JSON"):
+        try:
+            info = json.loads(env_token)
+        except ValueError as e:
+            raise RuntimeError("GA4_MCP_TOKEN_JSON is not valid JSON; paste the output of `ga4-mcp token`.") from e
+        # Refreshed lazily by the Google client on first use; nothing is written back.
+        return UserCredentials.from_authorized_user_info(info, SCOPES)
+
     path = token_path()
     if path.exists():
         creds = UserCredentials.from_authorized_user_file(str(path), SCOPES)
@@ -61,7 +76,7 @@ def load_credentials() -> Credentials:
         creds, _ = google.auth.default(scopes=SCOPES)
     except google.auth.exceptions.DefaultCredentialsError as e:
         raise RuntimeError(
-            "No Google credentials found. Run `ga4-mcp auth --client-secrets <file>` "
-            "or `gcloud auth application-default login` (see README)."
+            "No Google credentials found. Locally, run `ga4-mcp auth --client-secrets <file>`. "
+            "On Horizon, set the GA4_MCP_TOKEN_JSON secret or link a Google auth source (see README)."
         ) from e
     return creds

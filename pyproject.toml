@@ -10,7 +10,7 @@ dependencies = [
     "google-analytics-admin>=0.23",
     "google-auth>=2.30",
     "google-auth-oauthlib>=1.2",
-    # remote (HTTP / Vercel) mode
+    # self-hosted HTTP mode with built-in Google OAuth (`ga4-mcp remote`)
     "cryptography>=42",
     "httpx>=0.27",
     "starlette>=0.40",

@@ -85,3 +85,50 @@ def test_tools_registered_and_read_only():
     assert all(t.annotations.read_only_hint for t in tools)
     run_report = next(t for t in tools if t.name == "run_report")
     assert "metrics" in run_report.input_schema["required"]
+
+
+class _Ctx:
+    """Stands in for the MCP Context: only `.headers` is used."""
+
+    def __init__(self, headers):
+        self.headers = headers
+
+
+@pytest.mark.parametrize(
+    "auth, expected",
+    [
+        ("Bearer ya29.user-token", "ya29.user-token"),  # Horizon delegated authorization
+        ("Bearer fmcp_horizon_key", None),  # Horizon fail-open: never forward to Google
+        (None, None),
+    ],
+)
+def test_google_token_from_request_header(monkeypatch, auth, expected):
+    seen = {}
+
+    class FakeAdmin:
+        def list_account_summaries(self):
+            seen["token"] = server._google_token()
+            return []
+
+    monkeypatch.setattr(server, "_admin_client", FakeAdmin)
+    headers = {"authorization": auth} if auth else {}
+    server.list_account_summaries(ctx=_Ctx(headers))
+    assert seen["token"] == expected
+    assert server._google_token() is None  # header context doesn't leak past the call
+
+
+def test_token_json_env(monkeypatch):
+    import json
+
+    from ga4_mcp import auth
+
+    monkeypatch.setenv(
+        "GA4_MCP_TOKEN_JSON",
+        json.dumps({"refresh_token": "r", "client_id": "c", "client_secret": "s", "token_uri": "https://oauth2.googleapis.com/token"}),
+    )
+    creds = auth.load_credentials()
+    assert creds.refresh_token == "r" and creds.client_id == "c"
+
+    monkeypatch.setenv("GA4_MCP_TOKEN_JSON", "not json")
+    with pytest.raises(RuntimeError, match="GA4_MCP_TOKEN_JSON"):
+        auth.load_credentials()
