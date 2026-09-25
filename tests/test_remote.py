@@ -172,3 +172,10 @@ def test_sealer_rejects_wrong_kind_and_tampering():
     assert s.open("refresh", t) is None
     assert s.open("access", t[:-4] + "AAAA") is None
     assert remote.Sealer(Fernet.generate_key().decode()).open("access", t) is None
+
+
+def test_sealer_accepts_any_secret_string():
+    # Render's generateValue gives standard (non-URL-safe) base64, not a Fernet key.
+    s = remote.Sealer("B0jrphAPOY7pg92AN0c9MN4yecczLMdwnx4OkA1KFUk=")
+    assert s.open("access", s.seal("access", {"a": 1})) == {"a": 1}
+    assert remote.Sealer("another secret").open("access", s.seal("access", {"a": 1})) is None

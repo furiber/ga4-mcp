@@ -4,7 +4,7 @@ MCP clients (Claude, etc.) do OAuth with this server, and this server sends each
 through Google's consent screen, so every caller uses their *own* Google account and
 only the ``analytics.readonly`` scope.
 
-Use it when self-hosting (e.g. Render). On Horizon, Horizon handles auth instead.
+Built for Render (see ``render.yaml``), but it runs on any host.
 
 It's stateless, so it runs on any host (even serverless) with no database. Client
 registrations, authorization codes, access and refresh tokens are all Fernet-encrypted
@@ -101,8 +101,10 @@ class Settings:
 class Sealer:
     """Encrypts small JSON payloads into URL-safe strings with a purpose tag and expiry."""
 
-    def __init__(self, key: str):
-        self._fernet = Fernet(key)
+    def __init__(self, secret: str):
+        # Any secret string works (e.g. Render's generated base64 values): derive the
+        # 32-byte Fernet key from it rather than requiring Fernet's exact key format.
+        self._fernet = Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest()))
 
     def seal(self, kind: str, payload: dict, ttl: int | None = None) -> str:
         body = {"k": kind, "p": payload, "x": int(time.time()) + ttl if ttl else None}
