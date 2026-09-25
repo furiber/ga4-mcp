@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from google.analytics import data_v1beta as data
 from google.api_core import exceptions as gexc
-from fastmcp.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError
 
 from ga4_mcp import server
 
@@ -84,7 +84,14 @@ def test_tools_registered_and_read_only():
     assert {"run_report", "run_realtime_report", "get_metadata", "list_account_summaries"} <= names
     assert all(t.annotations.read_only_hint for t in tools)
     run_report = next(t for t in tools if t.name == "run_report")
-    assert "metrics" in run_report.parameters["required"]
+    assert "metrics" in run_report.input_schema["required"]
+
+
+class _Ctx:
+    """Stands in for the MCP Context: only `.headers` is used."""
+
+    def __init__(self, headers):
+        self.headers = headers
 
 
 @pytest.mark.parametrize(
@@ -105,9 +112,9 @@ def test_google_token_from_request_header(monkeypatch, auth, expected):
 
     monkeypatch.setattr(server, "_admin_client", FakeAdmin)
     headers = {"authorization": auth} if auth else {}
-    monkeypatch.setattr(server, "get_http_headers", lambda include=None: headers)
-    server.list_account_summaries()
+    server.list_account_summaries(ctx=_Ctx(headers))
     assert seen["token"] == expected
+    assert server._google_token() is None  # header context doesn't leak past the call
 
 
 def test_token_json_env(monkeypatch):
@@ -121,23 +128,6 @@ def test_token_json_env(monkeypatch):
     )
     creds = auth.load_credentials()
     assert creds.refresh_token == "r" and creds.client_id == "c"
-
-    from cryptography.hazmat.primitives import serialization
-    from cryptography.hazmat.primitives.asymmetric import rsa
-
-    pem = rsa.generate_private_key(public_exponent=65537, key_size=2048).private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-    )
-    monkeypatch.setenv(
-        "GA4_MCP_TOKEN_JSON",
-        json.dumps({
-            "type": "service_account", "client_email": "ga4@proj.iam.gserviceaccount.com",
-            "private_key": pem.decode(), "token_uri": "https://oauth2.googleapis.com/token",
-        }),
-    )
-    sa = auth.load_credentials()
-    assert sa.service_account_email == "ga4@proj.iam.gserviceaccount.com"
-    assert sa.scopes == auth.SCOPES
 
     monkeypatch.setenv("GA4_MCP_TOKEN_JSON", "not json")
     with pytest.raises(RuntimeError, match="GA4_MCP_TOKEN_JSON"):

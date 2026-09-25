@@ -1,11 +1,11 @@
 # ga4-mcp
 
-Read-only [MCP](https://modelcontextprotocol.io) server for **Google Analytics 4 reporting**, built
-with [FastMCP](https://gofastmcp.com). [Host it free on Prefect Horizon](#deploy-on-prefect-horizon-free-hosted)
-or run it locally (stdio). It calls the GA4 Data API (reports) and the Admin API (read-only lookups).
-
-> This is the **Horizon** branch: Horizon handles sign-in. For self-hosting (e.g. Render) with the
-> server's own Google OAuth, use the `claude/gracious-hypatia-kcwhl3` branch.
+Read-only [MCP](https://modelcontextprotocol.io) server for **Google Analytics 4 reporting**.
+Host it on [Render](#deploy-on-render-free-sign-in-with-google) or
+[Google Cloud Run](#deploy-on-google-cloud-run-sign-in-with-google), where everyone signs in with
+their own Google account, or run it locally (stdio).
+It calls the GA4 Data API (reports) and the Admin API (read-only lookups) **as you**, with your own
+Google account, so it sees exactly the properties you can see in the GA4 UI.
 
 Only the `https://www.googleapis.com/auth/analytics.readonly` OAuth scope is requested. Google
 enforces that scope, so the server can't change GA4 configuration even if a tool tried to.
@@ -108,94 +108,115 @@ claude mcp add ga4 -- uv --directory /path/to/ga4-mcp run ga4-mcp
 ```
 
 `ga4-mcp serve --transport streamable-http` is also available. It has no auth of its own, so only
-bind it locally. For a hosted server, see the next sections.
+bind it locally. For a hosted server, see the next section.
 
 ---
 
-## Deploy on Prefect Horizon (free, hosted)
+## Deploy on Render (free, sign in with Google)
 
-[Horizon](https://horizon.prefect.io) hosts the server and handles sign-in: MCP clients log in with
-your Horizon account, so nobody else can connect. `fastmcp.json` tells Horizon how to build it.
+`ga4-mcp remote` is a complete MCP server with its own sign-in. When you add it to Claude, you're
+sent to **Google's sign-in page**. Each person uses their own Google account (read-only scope) and
+sees only their own GA4 properties. Only emails in `ALLOWED_EMAILS` are let in, and a consent page
+names the app that's connecting. Sessions are encrypted tokens, so no database is needed.
 
-Horizon's sign-in only proves who is connecting *to Horizon*. Calling GA4 still needs a **Google**
-credential, and Google only issues those to a Google Cloud project, so some Google Cloud setup is
-unavoidable. Pick one:
-
-| Option | Google identity used | Google Cloud setup | Best for |
-|---|---|---|---|
-| **A. Service account** | A robot account you grant Viewer on GA4 | Project + 2 APIs + a key. No consent screen, nothing to run locally. | **Quickest first test** |
-| B. Your Google account | You, for every call | Project + 2 APIs + consent screen + Desktop client, then `ga4-mcp auth` locally | Seeing exactly what you see |
-| C. Each caller's account | Each caller | Like B, plus Horizon's delegated authorization. **Paid Developer plan.** | Teams |
-
-### 1A. Service account (quickest)
-
-1. **Create or pick a project:** https://console.cloud.google.com/projectcreate
-2. **Enable** the [Google Analytics Data API](https://console.cloud.google.com/apis/library/analyticsdata.googleapis.com)
-   and the [Google Analytics Admin API](https://console.cloud.google.com/apis/library/analyticsadmin.googleapis.com).
-3. **Create a service account:** *IAM & Admin → Service Accounts → Create*. It needs no roles.
-   Then open it, go to *Keys → Add key → JSON*, and download the file. Treat it like a password.
-4. **Give it GA4 access:** in GA4, go to *Admin → Property access management → +*. Add the service
-   account's email (`…@….iam.gserviceaccount.com`) as **Viewer** on each property you want. Use
-   *Account access management* instead to cover every property in an account.
-5. Use the **whole JSON file contents** as `GA4_MCP_TOKEN_JSON` in step 2 below.
-
-If key creation is blocked, your Google Workspace organization has the policy
-`iam.disableServiceAccountKeyCreation` enabled. Use option B instead.
-
-### 1B. Your own Google account
-
-Complete [Setup](#setup) steps 1–3 above: the Google Cloud project, the Desktop OAuth client, and
-`ga4-mcp auth`. Then print the token as one line:
-
-```bash
-uv run ga4-mcp token
+```
+Claude ──OAuth──▶ ga4-mcp.onrender.com ──▶ Google sign-in (analytics.readonly)
+   ▲                     │ encrypted bearer token holds the user's Google token
+   └──── MCP calls ──────┘────────▶ GA4 Data / Admin API as that user
 ```
 
-It contains a refresh token for read-only access to your GA4 data. Treat it like a password.
+### 1. Google Cloud (once)
 
-> ⚠️ If your consent screen is External and still in *Testing*, this token stops working after
-> 7 days. Publish the app first (see the Google Cloud setup above).
+1. Complete [Setup](#setup) step 1: create a project, enable both Analytics APIs, and configure the
+   consent screen. **Publish** the consent screen (*Audience → Publish app*). Otherwise Google
+   logs everyone out after 7 days and only listed test users can sign in.
+2. *Google Auth Platform → Clients → Create client*, type **Web application**.
+   - **Authorized redirect URI:** `https://<service-name>.onrender.com/oauth/google/callback`.
+     You'll know the exact name after step 2. You can edit this field later.
+   - Copy the **Client ID** and **Client secret**.
 
-### 2. Deploy
+### 2. Render
 
-1. Sign in at https://horizon.prefect.io with GitHub and create a server from this repo.
-2. **Entrypoint:** `main.py:mcp`. Horizon reads `fastmcp.json` for the Python version and
-   dependencies.
-3. Under **Settings → Environment Variables**, add `GA4_MCP_TOKEN_JSON` with the value from step 1
-   (Production).
-4. Deploy, or redeploy if the server already existed before you added the variable.
+1. Go to https://dashboard.render.com, then *New → Blueprint*, and pick this repo and branch.
+   `render.yaml` sets up a free Python web service.
+2. When prompted, fill in:
+
+   | Variable | Value |
+   |---|---|
+   | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | From the Web client |
+   | `ALLOWED_EMAILS` | Who may sign in: `me@gmail.com,@mycompany.com`, or `*` for anyone |
+
+   `TOKEN_ENCRYPTION_KEY` is generated automatically. The public URL comes from Render's
+   `RENDER_EXTERNAL_URL`. Set `PUBLIC_URL` only if you use a custom domain.
+3. After the deploy, opening `https://<service-name>.onrender.com/` should show "GA4 MCP server".
+   Make sure the redirect URI from step 1.2 matches this host exactly.
 
 ### 3. Connect
 
-Use the server URL Horizon shows, e.g. `https://<server-name>.fastmcp.app/mcp`:
-
-- **Claude (web, desktop, mobile):** *Settings → Connectors → Add custom connector*. Sign in with
-  Horizon when prompted.
-- **Claude Code:** `claude mcp add --transport http ga4 https://<server-name>.fastmcp.app/mcp`,
+- **Claude (web, desktop, mobile):** *Settings → Connectors → Add custom connector*. Use the URL
+  `https://<service-name>.onrender.com/mcp`, then sign in with Google.
+- **Claude Code:** `claude mcp add --transport http ga4 https://<service-name>.onrender.com/mcp`,
   then run `/mcp` to sign in.
 
-### Option C: per-user Google accounts (Horizon Developer plan)
+### Notes
 
-Horizon's [delegated authorization](https://docs.horizon.prefect.io/platform/external-authentication#delegated-authorization)
-lets each person authorize Google once. Horizon then passes their Google token to the server on
-every call. The server uses it automatically: an incoming `Authorization: Bearer ya29.…` header
-takes precedence over `GA4_MCP_TOKEN_JSON`.
+- **Free tier:** the service sleeps after 15 minutes without traffic, and the next request takes
+  about a minute to wake it. If a connection times out, open the `/` URL first, then retry.
+- **Signing out:** revoke "GA4 MCP" at https://myaccount.google.com/permissions. Changing
+  `TOKEN_ENCRYPTION_KEY` signs everyone out.
+- **Test locally:** set the same variables with `PUBLIC_URL=http://localhost:8000`, add
+  `http://localhost:8000/oauth/google/callback` to the Web client, and run `uv run ga4-mcp remote`.
 
-1. In Google Cloud, create a **Web application** OAuth client with redirect URI
-   `https://horizon.prefect.io/oauth/external/callback`.
-2. In Horizon, open the server's *Access → Authentication → Delegated authentication → Link auth
-   source → OAuth* and enter the details manually:
-   - **Authorization URL:** `https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent`.
-     The query string asks Google for a refresh token.
-   - **Token URL:** `https://oauth2.googleapis.com/token`
-   - **Scopes:** `https://www.googleapis.com/auth/analytics.readonly`
-   - **Client ID / secret** from step 1. Token endpoint authentication: request body.
-   - **Token to forward upstream:** access token.
-3. Each user authorizes Google on first connect, or at `https://horizon.prefect.io/<server-slug>/authorize`.
-4. Optionally remove `GA4_MCP_TOKEN_JSON`. If you keep it, calls fall back to *your* account
-   whenever a user has no valid Google authorization, because Horizon fails open.
+## Deploy on Google Cloud Run (sign in with Google)
 
----
+The same server as the Render option, packaged with the `Dockerfile` and deployed by
+`deploy/cloud-run.sh`. It runs in the Google Cloud project you already use for the GA4 APIs.
+
+**Cost:** personal use normally fits in Cloud Run's monthly free tier: 180,000 vCPU-seconds,
+360,000 GiB-seconds and 2 million requests, at on-demand us-central1 pricing (September 2026).
+Each tool call uses a few seconds. The service shuts down when idle, and a cold start takes a few
+seconds (Render's free tier takes about a minute). A **billing account is required** even when
+the bill is $0, so set a budget alert (*Billing → Budgets & alerts*, e.g. $1).
+
+### 1. Google Cloud (once)
+
+1. Complete [Setup](#setup) step 1 (project, APIs, consent screen) and **publish** the consent
+   screen, as for Render.
+2. Create a **Web application** OAuth client. Leave the redirect URI empty for now; the script
+   prints it.
+3. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and run `gcloud auth login`.
+
+### 2. Deploy
+
+From the repo root:
+
+```bash
+PROJECT_ID=my-project \
+GOOGLE_CLIENT_ID=123-abc.apps.googleusercontent.com \
+ALLOWED_EMAILS=me@gmail.com \
+./deploy/cloud-run.sh
+```
+
+It asks for the OAuth client secret, then:
+
+- enables Cloud Run, Cloud Build, Artifact Registry, Secret Manager and both Analytics APIs;
+- stores the client secret and a generated encryption key in **Secret Manager**;
+- creates a runtime service account that can only read those two secrets;
+- builds the image with Cloud Build and deploys it (1 vCPU, 512 MiB, scales to zero, at most 2
+  instances).
+
+Optional settings: `REGION` (default `us-central1`) and `SERVICE` (default `ga4-mcp`). Re-run the
+script to deploy new code. Secrets are kept, so nobody is signed out.
+
+### 3. Finish
+
+1. Add the redirect URI the script prints, `https://ga4-mcp-<project-number>.<region>.run.app/oauth/google/callback`,
+   to the Web OAuth client.
+2. Connect Claude to `https://ga4-mcp-<project-number>.<region>.run.app/mcp`, as in the Render
+   section.
+
+To change who may sign in, run
+`gcloud run services update ga4-mcp --region us-central1 --update-env-vars "^;^ALLOWED_EMAILS=a@x.com,b@y.com"`.
 
 ## Example prompts
 
@@ -227,10 +248,12 @@ takes precedence over `GA4_MCP_TOKEN_JSON`.
 | `403 User does not have sufficient permissions` | Your Google user has no access to that GA4 property. |
 | `invalid_grant` / token expired | Re-run `ga4-mcp auth`. This happens weekly if the consent screen is External + Testing (see above). |
 | `No Google credentials found` | Run step 3. |
-| Horizon: `No Google credentials found` | Set `GA4_MCP_TOKEN_JSON` for Production, then redeploy. |
-| Horizon: "Google rejected the access token" | With delegated authorization, re-authorize Google at `https://horizon.prefect.io/<server-slug>/authorize`. |
-| `invalid_grant` with `GA4_MCP_TOKEN_JSON` | The refresh token expired or was revoked. Re-run `ga4-mcp auth` and `ga4-mcp token`, then update the secret. |
-| `403 User does not have sufficient permissions` with a service account | Add the service account's email as Viewer in GA4 *Property access management*. |
+| Render: `redirect_uri_mismatch` from Google | The Web client's redirect URI must be exactly `https://<service-name>.onrender.com/oauth/google/callback`. |
+| Render: "not allowed to use this server" | Add the email or domain to `ALLOWED_EMAILS`. Render redeploys automatically. |
+| Render: `Missing environment variables` in the logs | Set them under the service's *Environment* tab. |
+| Render: connection times out | The free service was asleep. Open `https://<service-name>.onrender.com/` and retry. |
+| Cloud Run: build fails with a permission error | Newer projects run Cloud Build as the default compute service account. Grant it `roles/run.builder`, then re-run the script. |
+| Cloud Run: `allUsers` binding fails / 403 when connecting | Your organization blocks public services (domain-restricted sharing). Personal Gmail projects aren't affected. For Workspace, an admin must allow it for this project. |
 
 ## Development
 
