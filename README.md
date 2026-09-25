@@ -1,8 +1,9 @@
 # ga4-mcp
 
 Read-only [MCP](https://modelcontextprotocol.io) server for **Google Analytics 4 reporting**.
-[Host it free on Render](#deploy-on-render-free-sign-in-with-google), where everyone signs in
-with their own Google account, or run it locally (stdio).
+Host it on [Render](#deploy-on-render-free-sign-in-with-google) or
+[Google Cloud Run](#deploy-on-google-cloud-run-sign-in-with-google), where everyone signs in with
+their own Google account, or run it locally (stdio).
 It calls the GA4 Data API (reports) and the Admin API (read-only lookups) **as you**, with your own
 Google account, so it sees exactly the properties you can see in the GA4 UI.
 
@@ -166,6 +167,57 @@ Claude ──OAuth──▶ ga4-mcp.onrender.com ──▶ Google sign-in (analy
 - **Test locally:** set the same variables with `PUBLIC_URL=http://localhost:8000`, add
   `http://localhost:8000/oauth/google/callback` to the Web client, and run `uv run ga4-mcp remote`.
 
+## Deploy on Google Cloud Run (sign in with Google)
+
+The same server as the Render option, packaged with the `Dockerfile` and deployed by
+`deploy/cloud-run.sh`. It runs in the Google Cloud project you already use for the GA4 APIs.
+
+**Cost:** personal use normally fits in Cloud Run's monthly free tier: 180,000 vCPU-seconds,
+360,000 GiB-seconds and 2 million requests, at on-demand us-central1 pricing (September 2026).
+Each tool call uses a few seconds. The service shuts down when idle, and a cold start takes a few
+seconds (Render's free tier takes about a minute). A **billing account is required** even when
+the bill is $0, so set a budget alert (*Billing → Budgets & alerts*, e.g. $1).
+
+### 1. Google Cloud (once)
+
+1. Complete [Setup](#setup) step 1 (project, APIs, consent screen) and **publish** the consent
+   screen, as for Render.
+2. Create a **Web application** OAuth client. Leave the redirect URI empty for now; the script
+   prints it.
+3. Install the [gcloud CLI](https://cloud.google.com/sdk/docs/install) and run `gcloud auth login`.
+
+### 2. Deploy
+
+From the repo root:
+
+```bash
+PROJECT_ID=my-project \
+GOOGLE_CLIENT_ID=123-abc.apps.googleusercontent.com \
+ALLOWED_EMAILS=me@gmail.com \
+./deploy/cloud-run.sh
+```
+
+It asks for the OAuth client secret, then:
+
+- enables Cloud Run, Cloud Build, Artifact Registry, Secret Manager and both Analytics APIs;
+- stores the client secret and a generated encryption key in **Secret Manager**;
+- creates a runtime service account that can only read those two secrets;
+- builds the image with Cloud Build and deploys it (1 vCPU, 512 MiB, scales to zero, at most 2
+  instances).
+
+Optional settings: `REGION` (default `us-central1`) and `SERVICE` (default `ga4-mcp`). Re-run the
+script to deploy new code. Secrets are kept, so nobody is signed out.
+
+### 3. Finish
+
+1. Add the redirect URI the script prints, `https://ga4-mcp-<project-number>.<region>.run.app/oauth/google/callback`,
+   to the Web OAuth client.
+2. Connect Claude to `https://ga4-mcp-<project-number>.<region>.run.app/mcp`, as in the Render
+   section.
+
+To change who may sign in, run
+`gcloud run services update ga4-mcp --region us-central1 --update-env-vars "^;^ALLOWED_EMAILS=a@x.com,b@y.com"`.
+
 ## Example prompts
 
 - "List my GA4 properties."
@@ -200,6 +252,8 @@ Claude ──OAuth──▶ ga4-mcp.onrender.com ──▶ Google sign-in (analy
 | Render: "not allowed to use this server" | Add the email or domain to `ALLOWED_EMAILS`. Render redeploys automatically. |
 | Render: `Missing environment variables` in the logs | Set them under the service's *Environment* tab. |
 | Render: connection times out | The free service was asleep. Open `https://<service-name>.onrender.com/` and retry. |
+| Cloud Run: build fails with a permission error | Newer projects run Cloud Build as the default compute service account. Grant it `roles/run.builder`, then re-run the script. |
+| Cloud Run: `allUsers` binding fails / 403 when connecting | Your organization blocks public services (domain-restricted sharing). Personal Gmail projects aren't affected. For Workspace, an admin must allow it for this project. |
 
 ## Development
 
