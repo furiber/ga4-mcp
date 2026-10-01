@@ -127,6 +127,14 @@ Claude ──OAuth──▶ ga4-mcp.onrender.com ──▶ Google sign-in (analy
 
 ### 1. Google Cloud (once)
 
+**Guided:** the button opens Cloud Shell with this repo and a step-by-step tutorial. One click
+creates the project and enables the APIs, and the tutorial walks you through the remaining
+console pages.
+
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https%3A%2F%2Fgithub.com%2Ffuriber%2Fga4-mcp&cloudshell_git_branch=claude%2Fgracious-hypatia-kcwhl3&cloudshell_tutorial=deploy%2Fgcp-setup.md&show=terminal)
+
+**Manual:**
+
 1. Complete [Setup](#setup) step 1: create a project, enable both Analytics APIs, and configure the
    consent screen. **Publish** the consent screen (*Audience → Publish app*). Otherwise Google
    logs everyone out after 7 days and only listed test users can sign in.
