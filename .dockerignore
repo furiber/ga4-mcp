@@ -8,3 +8,8 @@ dist/
 # never ship Google credentials in the image
 client_secret*.json
 token.json
+node_modules
+.wrangler
+cloudflare
+wrangler.jsonc
+package.json

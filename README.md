@@ -268,3 +268,22 @@ To change who may sign in, run
 ```bash
 uv run pytest
 ```
+
+## Cloudflare (Containers)
+
+Runs the same Docker image on Cloudflare Containers (Workers Paid plan) behind a small Worker
+(`cloudflare/worker.ts`, `wrangler.jsonc`). Needs Docker running locally.
+
+```sh
+npm install
+npx wrangler login
+npx wrangler secret put GOOGLE_CLIENT_ID
+npx wrangler secret put GOOGLE_CLIENT_SECRET
+npx wrangler secret put ALLOWED_EMAILS
+npx wrangler secret put TOKEN_ENCRYPTION_KEY   # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+npx wrangler deploy
+```
+
+Then set `PUBLIC_URL` in `wrangler.jsonc` to the printed URL, run `npx wrangler deploy` again, and add
+`<PUBLIC_URL>/oauth/google/callback` as an authorized redirect URI on your Google OAuth client.
+The container sleeps after 30 minutes idle; the first request after that takes a few seconds.

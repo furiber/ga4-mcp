@@ -1,0 +1,20 @@
+// Cloudflare Containers deploy (Workers Paid plan). See README, "Cloudflare".
+{
+  "name": "ga4-mcp",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-10-06",
+  "vars": {
+    // Set to the URL `wrangler deploy` prints (or your custom domain), then redeploy.
+    "PUBLIC_URL": "https://ga4-mcp.YOUR-SUBDOMAIN.workers.dev"
+  },
+  "containers": [
+    { "class_name": "Ga4McpContainer", "image": "./Dockerfile", "max_instances": 1, "instance_type": "basic" }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "GA4_MCP", "class_name": "Ga4McpContainer" }]
+  },
+  "exports": {
+    "Ga4McpContainer": { "type": "durable-object", "storage": "sqlite" }
+  },
+  "observability": { "enabled": true }
+}
