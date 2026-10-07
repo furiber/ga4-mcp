@@ -77,6 +77,6 @@ def load_credentials() -> Credentials:
     except google.auth.exceptions.DefaultCredentialsError as e:
         raise RuntimeError(
             "No Google credentials found. Locally, run `ga4-mcp auth --client-secrets <file>`. "
-            "On Horizon, set the GA4_MCP_TOKEN_JSON secret or link a Google auth source (see README)."
+            "On a server, set the GA4_MCP_TOKEN_JSON secret (see README)."
         ) from e
     return creds

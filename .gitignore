@@ -6,3 +6,5 @@ dist/
 # never commit Google credentials
 client_secret*.json
 token.json
+node_modules/
+.wrangler/
