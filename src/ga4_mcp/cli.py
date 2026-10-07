@@ -27,7 +27,17 @@ def main(argv: list[str] | None = None) -> None:
     remote.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
 
     args = parser.parse_args(argv)
+    try:
+        _run(args)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:  # config/auth problems: show the message, not a traceback
+        if os.environ.get("GA4_MCP_DEBUG"):
+            raise
+        sys.exit(f"ga4-mcp: {e}")
 
+
+def _run(args: argparse.Namespace) -> None:
     if args.cmd == "auth":
         from .auth import run_oauth_flow
 
