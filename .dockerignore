@@ -11,5 +11,5 @@ token.json
 node_modules
 .wrangler
 cloudflare
-wrangler.jsonc
+cloudflare.config.ts
 package.json

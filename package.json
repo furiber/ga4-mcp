@@ -1,7 +1,17 @@
 {
   "name": "ga4-mcp-cloudflare",
   "private": true,
-  "scripts": { "deploy": "wrangler deploy" },
-  "dependencies": { "@cloudflare/containers": "^0.2.0" },
-  "devDependencies": { "wrangler": "^4" }
+  "scripts": {
+    "dev": "cf dev",
+    "build": "cf build",
+    "deploy": "cf deploy"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.2.0"
+  },
+  "devDependencies": {
+    "cf": "^1.0.0-rc.1",
+    "wrangler": "^4.163.0"
+  },
+  "type": "module"
 }

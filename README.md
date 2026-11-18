@@ -272,18 +272,32 @@ uv run pytest
 ## Cloudflare (Containers)
 
 Runs the same Docker image on Cloudflare Containers (Workers Paid plan) behind a small Worker
-(`cloudflare/worker.ts`, `wrangler.jsonc`). Needs Docker running locally.
+(`cloudflare/worker.ts`, `cloudflare.config.ts`). Uses the [`cf` CLI](https://developers.cloudflare.com/cf/).
+Needs Node.js 22.18+ and Docker running locally.
 
-```sh
-npm install
-npx wrangler login
-npx wrangler secret put GOOGLE_CLIENT_ID
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-npx wrangler secret put ALLOWED_EMAILS
-npx wrangler secret put TOKEN_ENCRYPTION_KEY   # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-npx wrangler deploy
-```
+1. Create a `secrets.json` file outside the repository. Keep it private:
 
-Then set `PUBLIC_URL` in `wrangler.jsonc` to the printed URL, run `npx wrangler deploy` again, and add
-`<PUBLIC_URL>/oauth/google/callback` as an authorized redirect URI on your Google OAuth client.
+   ```json
+   {
+     "GOOGLE_CLIENT_ID": "...apps.googleusercontent.com",
+     "GOOGLE_CLIENT_SECRET": "...",
+     "ALLOWED_EMAILS": "me@gmail.com",
+     "TOKEN_ENCRYPTION_KEY": "output of: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+   }
+   ```
+
+2. Sign in and deploy. Set `PUBLIC_URL` to the Worker's URL (its workers.dev URL or a custom domain):
+
+   ```sh
+   npm install
+   npx cf auth login
+   PUBLIC_URL=https://ga4-mcp.YOUR-SUBDOMAIN.workers.dev npx cf deploy --secrets-file ../secrets.json
+   ```
+
+3. Add `<PUBLIC_URL>/oauth/google/callback` as an authorized redirect URI on your Google OAuth client.
+
+On the first deploy you don't know the workers.dev URL yet: deploy once, then deploy again with the
+printed URL. To change one secret later, use *Workers & Pages → ga4-mcp → Settings → Variables and
+Secrets* in the Cloudflare dashboard. To deploy an image you built and pushed yourself
+(`npx cf containers push --tag ga4-mcp:TAG`), set `GA4_MCP_IMAGE` to the pushed registry reference.
 The container sleeps after 30 minutes idle; the first request after that takes a few seconds.
